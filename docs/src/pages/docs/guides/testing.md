@@ -86,3 +86,53 @@ expect(result.current).toEqual({answer: 42});
 ```
 
 Here we are making use of `waitFor` and waiting until our Nock expectation indicates that it has been called. This way we know that our hook has finished and should have the correct data.
+
+## Testing Load More / Infinite Scroll
+
+First we need to mock our API response
+
+```
+function generateMockedResponse(page) {
+  return {
+    page: page,
+    items: [...]
+  }
+}
+```
+
+Then, our `nock` configuration needs to differentiate responses based on the page.
+(Psst! Don't forget to call `.persist()` because we'll be calling this endpoint multiple times here)
+
+```
+const expectation = nock('http://example.com')
+  .persist()
+  .query(true)
+  .get('/api/data')
+  .reply(200, (uri) => {
+    const url = new URL(`http://example.com${uri}`);
+    const { page } = Object.fromEntries(url.searchParams);
+    return generateMockedResponse(page);
+  });
+```
+
+Now we can safely run our tests, the trick here is to await both `isFetching` and then `!isFetching` after calling `fetchMore()`:
+
+```
+const { result, waitFor } = renderHook(() => useInfiniteQueryCustomHook(), { wrapper });
+
+await waitFor(() => result.current.isSuccess);
+
+expect(result.current.data).toStrictEqual(generateMockedResponse(1));
+
+result.current.fetchMore();
+
+await waitFor(() => result.current.isFetching);
+await waitFor(() => !result.current.isFetching);
+
+expect(result.current.data).toStrictEqual([
+  ...generateMockedResponse(1),
+  ...generateMockedResponse(2),
+]);
+
+expectation.done();
+```
